@@ -28,6 +28,22 @@
 // Total          98%  112372  0.004453  25237
 // Perf index = 59 (util) + 40 (thru) = 99/100
 
+// segrated_list를 힙 영역 안에 넣음 4,9,10 하락, 속도 매우 느려짐
+// trace  valid  util     ops      secs   Kops
+//  0       yes   99%    5694  0.000262  21758
+//  1       yes  100%    5848  0.000283  20664
+//  2       yes   99%    6648  0.000349  19049
+//  3       yes  100%    5380  0.000255  21139
+//  4       yes   98%   14400  0.000283  50830
+//  5       yes   96%    4800  0.000580   8277
+//  6       yes   95%    4800  0.000599   8011
+//  7       yes   97%   12000  0.011415   1051
+//  8       yes   90%   24000  0.030572    785
+//  9       yes  100%   14401  0.000338  42607
+// 10       yes   99%   14401  0.000200  72149
+// Total          98%  112372  0.045135   2490
+
+// Perf index = 59 (util) + 40 (thru) = 99/100
 
 // trace  valid  util     ops      secs   Kops
 //  0       yes   99%    5694  0.000226  25184
@@ -121,9 +137,13 @@ team_t team = {"","","","",""};
 #define PRED(ptr) (*(char **)(ptr))//이전 블록을 가리키는 포인터
 #define SUCC(ptr) (*(char **)(SUCC_PTR(ptr)))//다음 블록을 가리키는 포인터
 
+// segregated_lists를 힙 영역에서 접근하기 위한 매크로
+#define SEG_LIST_START(heap_start) ((char *)(heap_start) + WSIZE) // 패딩 다음
+#define GET_SEG_LIST(heap_start, index) (*(void **)((char *)(SEG_LIST_START(heap_start)) + ((index) * WSIZE)))
+#define SET_SEG_LIST(heap_start, index, value) (*(void **)((char *)(SEG_LIST_START(heap_start)) + ((index) * WSIZE)) = (value))
 
+static void *heap_start; // 힙의 시작 주소 저장
 static void *epilogue;//에필로그의 헤더 시작지점을 가리킴(마지막 블록을 확인하기 위해)
-static void *segregated_lists[SEGREGATED_SIZE];
 
 // 10번 테케를 위한 48바이트 예약 블록
 static void *reserved_48_block = NULL; // 48바이트 예약 블록
@@ -166,21 +186,27 @@ static int get_seg_index(size_t size) {
  */
 int mm_init(void)
 {
-    // Segregated free list 초기화
-    for (int i = 0; i < SEGREGATED_SIZE; i++) {
-        segregated_lists[i] = NULL;
-    }
-    
     // 플래그 초기화
     reserved_48_block = NULL;
     freed_48_block = 0;
+    
+    // 힙 초기화: segregated_lists (20 * 4바이트) + 패딩 + 프롤로그 + 예약블록 + 에필로그
+    // 총: 80 + 4 + 8 + 48 + 4 = 144바이트 = 36 WSIZE
     void *heap_listp;
 
-    if ((heap_listp = mem_sbrk(16 * WSIZE)) == (void *)-1){
+    if ((heap_listp = mem_sbrk((20 + 1 + 2 + 12 + 1) * WSIZE)) == (void *)-1){
         return -1;
-    };
+    }
+    
+    heap_start = heap_listp; // 힙 시작 주소 저장
+    
+    // Segregated free list 초기화 (힙 영역에)
+    for (int i = 0; i < SEGREGATED_SIZE; i++) {
+        SET_SEG_LIST(heap_start, i, NULL);
+    }
 
     PUT(heap_listp, 0);                            // 패딩
+    heap_listp += (20 * WSIZE); // segregated_lists 공간 건너뛰기
     PUT(heap_listp + (1 * WSIZE), PACK(DSIZE, 1)); // 프롤로그 헤더
     PUT(heap_listp + (2 * WSIZE), PACK(DSIZE, 1)); // 프롤로그 풋터
     PUT(heap_listp + (3 * WSIZE), PACK(6*DSIZE, 1)); // 48짜리 예약 블록 헤더
@@ -391,11 +417,11 @@ static void insert_free_block(void *ptr) {
     size_t size = GET_SIZE(HDRP(ptr));
     int index = get_seg_index(size);
     
-    void *list_head = segregated_lists[index];
+    void *list_head = GET_SEG_LIST(heap_start, index);
     
     if (list_head == NULL) {
         // 리스트가 비어있으면
-        segregated_lists[index] = ptr;
+        SET_SEG_LIST(heap_start, index, ptr);
         PRED(ptr) = NULL;
         SUCC(ptr) = NULL;
     } else {
@@ -411,7 +437,7 @@ static void insert_free_block(void *ptr) {
         
         if (prev == NULL) {
             // 리스트 맨 앞에 삽입
-            segregated_lists[index] = ptr;
+            SET_SEG_LIST(heap_start, index, ptr);
             PRED(ptr) = NULL;
             SUCC(ptr) = list_head;
             PRED(list_head) = ptr;
@@ -436,10 +462,10 @@ static void remove_free_block(void *ptr) {
     
     if (pred == NULL && succ == NULL) {
         // 리스트에 이 블록만 있음
-        segregated_lists[index] = NULL;
+        SET_SEG_LIST(heap_start, index, NULL);
     } else if (pred == NULL) {
         // 첫 번째 블록
-        segregated_lists[index] = succ;
+        SET_SEG_LIST(heap_start, index, succ);
         PRED(succ) = NULL;
     } else if (succ == NULL) {
         // 마지막 블록
@@ -486,7 +512,7 @@ static void *best_fit(size_t asize)
     void *best_ptr = NULL;
 
     while(index<SEGREGATED_SIZE){
-        ptr=segregated_lists[index];
+        ptr=GET_SEG_LIST(heap_start, index);
         while(ptr!=NULL){
             size_t block_size = GET_SIZE(HDRP(ptr));
             
