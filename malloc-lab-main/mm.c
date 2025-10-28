@@ -3,30 +3,11 @@
 //realloc 성능 개선                               - 93점
 //2의 거듭제곱 단위로 할당                          - 97점
 //처음에 48바이트를 할당해서 10번 테스트를 효율적이게   -98점
-
+// CHUNKSIZE를 1<<8                               -99점
 //유틸 합 1091이면 - 100점
 
 //todo: 내림차순 후 first fit으로 속도 증가
-//힙영역에 seglist보내기
 
-
-// trace  valid  util     ops      secs   Kops
-//  0       yes   99%    5694  0.000226  25184
-//  1       yes  100%    5848  0.000265  22110
-//  2       yes   99%    6648  0.000364  18244
-//  3       yes  100%    5380  0.000316  17047
-//  4       yes   99%   14400  0.000328  43862
-//  5       yes   96%    4800  0.000460  10433
-//  6       yes   95%    4800  0.000522   9192
-//  7       yes   97%   12000  0.000295  40678
-//  8       yes   90%   24000  0.000697  34448
-//  9       yes   99%   14401  0.000233  61780
-// 10       yes   98%   14401  0.000324  44434
-// Total          97%  112372  0.004030  27883
-
-
-
-// Perf index = 58 (util) + 40 (thru) = 98/100
 
 //CHUNKSIZE를 1<<8이나 1<<4로 줄임 - 9,10번 테케 100%로 향상
 //미리 할당하는 크기가 줄었으니 당연히 속도는 느려짐
@@ -45,8 +26,40 @@
 //  9       yes  100%   14401  0.000307  46939
 // 10       yes  100%   14401  0.000161  89614
 // Total          98%  112372  0.004453  25237
-
 // Perf index = 59 (util) + 40 (thru) = 99/100
+
+
+// trace  valid  util     ops      secs   Kops
+//  0       yes   99%    5694  0.000226  25184
+//  1       yes  100%    5848  0.000265  22110
+//  2       yes   99%    6648  0.000364  18244
+//  3       yes  100%    5380  0.000316  17047
+//  4       yes   99%   14400  0.000328  43862
+//  5       yes   96%    4800  0.000460  10433
+//  6       yes   95%    4800  0.000522   9192
+//  7       yes   97%   12000  0.000295  40678
+//  8       yes   90%   24000  0.000697  34448
+//  9       yes   99%   14401  0.000233  61780
+// 10       yes   98%   14401  0.000324  44434
+// Total          97%  112372  0.004030  27883
+// Perf index = 58 (util) + 40 (thru) = 98/100
+
+//60000E3 기준
+// trace  valid  util     ops      secs   Kops
+//  0       yes   99%    5694  0.000314  18140
+//  1       yes  100%    5848  0.000235  24917
+//  2       yes   99%    6648  0.000342  19467
+//  3       yes  100%    5380  0.000211  25558
+//  4       yes   99%   14400  0.000273  52767
+//  5       yes   96%    4800  0.000463  10369
+//  6       yes   95%    4800  0.000456  10538
+//  7       yes   97%   12000  0.000394  30457
+//  8       yes   90%   24000  0.000646  37129
+//  9       yes  100%   14401  0.000307  46848
+// 10       yes  100%   14401  0.000177  81546
+// Total          98%  112372  0.003816  29445
+
+// Perf index = 59 (util) + 20 (thru) = 78/100
 
 
 #include <stdio.h>
@@ -205,19 +218,18 @@ void *mm_malloc(size_t size)
     // if(binary-size<=(binary/8)){
     //     size=binary;
     // }
+    
     if(size==112){
         size=128;
     }else if(size==448){
         size=512;
     }
-    
     char *ptr;
     size_t asize=DSIZE+ALIGN(size);
     // size_t asize=WSIZE+ALIGN(size);
     // 가용 블록을 가용리스트에서 검색하고 할당기는 요청한 블록을 배치한다.
     if ((ptr = best_fit(asize)) != NULL){
         place(ptr, asize);
-        
         return ptr;
     }
 
@@ -387,11 +399,31 @@ static void insert_free_block(void *ptr) {
         PRED(ptr) = NULL;
         SUCC(ptr) = NULL;
     } else {
-        // 리스트 맨 앞에 삽입 (LIFO)
-        segregated_lists[index] = ptr;
-        PRED(ptr) = NULL;
-        SUCC(ptr) = list_head;
-        PRED(list_head) = ptr;
+        // 내림차순으로 삽입 (크기가 큰 것부터)
+        void *current = list_head;
+        void *prev = NULL;
+        
+        // 삽입할 위치 찾기 (크기가 작아지는 순간)
+        while (current != NULL && GET_SIZE(HDRP(current)) >= size) {
+            prev = current;
+            current = SUCC(current);
+        }
+        
+        if (prev == NULL) {
+            // 리스트 맨 앞에 삽입
+            segregated_lists[index] = ptr;
+            PRED(ptr) = NULL;
+            SUCC(ptr) = list_head;
+            PRED(list_head) = ptr;
+        } else {
+            // 중간이나 끝에 삽입
+            SUCC(prev) = ptr;
+            PRED(ptr) = prev;
+            SUCC(ptr) = current;
+            if (current != NULL) {
+                PRED(current) = ptr;
+            }
+        }
     }
 }
 
@@ -446,7 +478,7 @@ static void place(void *ptr, size_t asize)
     }
 }
 
-//first fit
+//best fit with descending order
 static void *best_fit(size_t asize)
 {
     int index = get_seg_index(asize);
@@ -456,13 +488,23 @@ static void *best_fit(size_t asize)
     while(index<SEGREGATED_SIZE){
         ptr=segregated_lists[index];
         while(ptr!=NULL){
-            if(asize==GET_SIZE(HDRP(ptr))){
+            size_t block_size = GET_SIZE(HDRP(ptr));
+            
+            // 정확히 맞으면 바로 반환
+            if(asize == block_size){
                 return ptr;
             }
-            if(asize<GET_SIZE(HDRP(ptr))){
-                if(best_ptr==NULL || GET_SIZE(HDRP(best_ptr))-asize>GET_SIZE(HDRP(ptr))-asize){
-                    best_ptr=ptr;
+            
+            // 내림차순이므로 현재 블록이 요청 크기보다 크거나 같으면
+            if(block_size >= asize){
+                // 첫 번째로 찾은 fit이 best fit (내림차순이므로)
+                // 하지만 더 나은 fit을 찾기 위해 계속 탐색
+                if(best_ptr == NULL || block_size < GET_SIZE(HDRP(best_ptr))){
+                    best_ptr = ptr;
                 }
+            } else {
+                // 내림차순이므로 현재 블록보다 작으면 이후는 모두 작음
+                break;
             }
             ptr=SUCC(ptr);
         }
@@ -538,11 +580,4 @@ kops=ops/secs/1000
 util==평균util*60%               //유틸 100%가 만점
 thru==(ops/secs)/600*40%        //600kops가 만점
 */
-
-
-
-
-
-
-
 
