@@ -4,15 +4,30 @@
 //2의 거듭제곱 단위로 할당                          - 97점
 //처음에 48바이트를 할당해서 10번 테스트를 효율적이게   -98점
 // CHUNKSIZE를 1<<8                               -99점
-//유틸 합 1091이면 - 100점
 
-//todo: 내림차순 후 first fit으로 속도 증가
+//주석처리한 부분은 내림차순 정렬후 first fit으로 bestfit을 대체하려 했으나 느려서 버린 흔적
 
 
-//CHUNKSIZE를 1<<8이나 1<<4로 줄임 - 9,10번 테케 100%로 향상
-//미리 할당하는 크기가 줄었으니 당연히 속도는 느려짐
-//유틸 합 1075 - 99점
+//유틸 합 1091이면 100점<<trace8 못올리면 사실상 불가능
 
+// segrated_list를 힙 영역 안에 넣음 4,10 유틸 하락
+// trace  valid  util     ops      secs   Kops
+//  0       yes   99%    5694  0.000409  13918
+//  1       yes  100%    5848  0.000424  13786
+//  2       yes   99%    6648  0.000332  20006
+//  3       yes  100%    5380  0.000297  18133
+//  4       yes   98%   14400  0.000321  44888
+//  5       yes   96%    4800  0.000580   8283
+//  6       yes   95%    4800  0.000524   9167
+//  7       yes   97%   12000  0.000469  25575
+//  8       yes   90%   24000  0.000660  36342
+//  9       yes  100%   14401  0.000623  23123
+// 10       yes   99%   14401  0.000159  90629
+// Total          98%  112372  0.004797  23423
+
+// Perf index = 59 (util) + 40 (thru) = 99/100
+
+//기존 전역 리스트 버전
 // trace  valid  util     ops      secs   Kops
 //  0       yes   99%    5694  0.000290  19662
 //  1       yes  100%    5848  0.000268  21805
@@ -27,57 +42,6 @@
 // 10       yes  100%   14401  0.000161  89614
 // Total          98%  112372  0.004453  25237
 // Perf index = 59 (util) + 40 (thru) = 99/100
-
-// segrated_list를 힙 영역 안에 넣음 4,9,10 하락, 속도 매우 느려짐
-// trace  valid  util     ops      secs   Kops
-//  0       yes   99%    5694  0.000262  21758
-//  1       yes  100%    5848  0.000283  20664
-//  2       yes   99%    6648  0.000349  19049
-//  3       yes  100%    5380  0.000255  21139
-//  4       yes   98%   14400  0.000283  50830
-//  5       yes   96%    4800  0.000580   8277
-//  6       yes   95%    4800  0.000599   8011
-//  7       yes   97%   12000  0.011415   1051
-//  8       yes   90%   24000  0.030572    785
-//  9       yes  100%   14401  0.000338  42607
-// 10       yes   99%   14401  0.000200  72149
-// Total          98%  112372  0.045135   2490
-
-// Perf index = 59 (util) + 40 (thru) = 99/100
-
-// trace  valid  util     ops      secs   Kops
-//  0       yes   99%    5694  0.000226  25184
-//  1       yes  100%    5848  0.000265  22110
-//  2       yes   99%    6648  0.000364  18244
-//  3       yes  100%    5380  0.000316  17047
-//  4       yes   99%   14400  0.000328  43862
-//  5       yes   96%    4800  0.000460  10433
-//  6       yes   95%    4800  0.000522   9192
-//  7       yes   97%   12000  0.000295  40678
-//  8       yes   90%   24000  0.000697  34448
-//  9       yes   99%   14401  0.000233  61780
-// 10       yes   98%   14401  0.000324  44434
-// Total          97%  112372  0.004030  27883
-// Perf index = 58 (util) + 40 (thru) = 98/100
-
-//60000E3 기준
-// trace  valid  util     ops      secs   Kops
-//  0       yes   99%    5694  0.000314  18140
-//  1       yes  100%    5848  0.000235  24917
-//  2       yes   99%    6648  0.000342  19467
-//  3       yes  100%    5380  0.000211  25558
-//  4       yes   99%   14400  0.000273  52767
-//  5       yes   96%    4800  0.000463  10369
-//  6       yes   95%    4800  0.000456  10538
-//  7       yes   97%   12000  0.000394  30457
-//  8       yes   90%   24000  0.000646  37129
-//  9       yes  100%   14401  0.000307  46848
-// 10       yes  100%   14401  0.000177  81546
-// Total          98%  112372  0.003816  29445
-
-// Perf index = 59 (util) + 20 (thru) = 78/100
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -93,11 +57,8 @@ team_t team = {"","","","",""};
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)//8의 배수로 올림해줌
-// #define ALIGN(size) (((size) + (3)) & ~0x3)//4의 배수로 올림해줌
-
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))//size_t를 8의 배수로 올림==8
-
 
 #define WSIZE 4             // 워드 사이즈
 #define DSIZE 8             // 더블 워드 사이즈
@@ -225,10 +186,7 @@ int mm_init(void)
     return 0;
 }
 
-/* 
- * mm_malloc - Allocate a block by incrementing the brk pointer.
- *     Always allocate a block whose size is a multiple of the alignment.
- */
+
 void *mm_malloc(size_t size)
 {
     /* 의미 없는 요청 처리 안함 */
@@ -259,7 +217,7 @@ void *mm_malloc(size_t size)
         return ptr;
     }
 
-    /* 리스트에 들어갈 수 있는 free 리스트가 없을 경우, 메모리를 확장하고 블록을 배치한다 */
+    //마지막 블록이 free면 그만큼 덜 확장
     size_t extendsize = MAX(asize, CHUNKSIZE);
     void *last_free=HEADER_TO_PREV(epilogue);
     if(!GET_ALLOC(HDRP(last_free))){
@@ -284,9 +242,6 @@ void *mm_malloc(size_t size)
     return NULL;
 }
 
-/*
- * mm_free - Freeing a block does nothing.
- */
 void mm_free(void *ptr)
 {
     if (ptr == NULL) {
@@ -300,15 +255,6 @@ void mm_free(void *ptr)
     coalesce(ptr);
 }
 
-/*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
- 
-- 만약 ptr == NULL 이면, `mm_malloc(size)`과 동일한 동작을 수행한다.
-- 만약 size가 0 이면, `mm_free(ptr)`와 동일한 동작을 수행한다.
-- 만약 ptr != NULL 이면, 이전에 `mm_malloc()` 또는 `mm_realloc()`을 이용해 반환값이 존재하는 상태라고 볼 수 있다.
-  이때 `mm_realloc()`을 호출하면, ptr이 가르키는 메모리 블록(이전 블록)의 메모리 크기가 바이트 단위로 변경된다. 이후 새 블록의 주소를 return 한다.
-  새블록의 크기는 이전 ptr 블록의 크기와 최소한의 크기까지는 동일하고, 그 이외의 범위는 초기화되지 않는다. 예를 들어 이전 블록이 8바이트이고, 새 블록이 12바이트인 경우 첫 8바이트는 이전 블록과 동일하고 이후 4바이트는 초기화되지 않은 상태임을 의미한다.
- */
 void *mm_realloc(void *ptr, size_t size)
 {
     if (ptr == NULL) {
@@ -323,8 +269,7 @@ void *mm_realloc(void *ptr, size_t size)
     size_t csize = GET_SIZE(HDRP(ptr));//현재 사이즈
     size_t asize = DSIZE + ALIGN(size);
 
-    // 1. [In-Place 축소/유지] 새로 요청한 크기가 현재 블록에 들어가는 경우
-    // 또는 요청 크기와 현재 크기 차이가 작을 때 (내부 단편화 허용)
+    // case1: 새로 요청한 크기가 기존 블록보다 작은 경우
     if (asize <= csize) {
         // 분할이 의미있는 경우만 분할 (최소 16바이트 이상 남을 때)
         // if ((csize - asize) >= (2 * DSIZE)) {
@@ -333,7 +278,7 @@ void *mm_realloc(void *ptr, size_t size)
         return ptr; // 주소 그대로 반환 (memcpy 없음!)
     }
 
-    // 2. [In-Place 확장] 현재 블록에 안 들어가지만 다음 블록이 Free이고 합쳐서 들어가는 경우
+    // case2: 기존 블록에는 안들어가지만 뒤의 free블록들을 합치면 들어가는 경우
     void *next_ptr = NEXT_BLKP(ptr);
     size_t next_alloc = GET_ALLOC(HDRP(next_ptr));
     size_t combined_size = csize;
@@ -356,7 +301,7 @@ void *mm_realloc(void *ptr, size_t size)
     
     size_t next_size = GET_SIZE(HDRP(next_ptr));
     
-    // 2-1. [힙 끝에서 확장] 다음 블록이 에필로그(힙의 끝)이면 힙을 확장
+    // case3: 다음 블록이 에필로그인 경우
     if (next_size == 0) { // 에필로그 (크기 0)
         size_t need_size = asize - csize;
         size_t extend_size = MAX(need_size, CHUNKSIZE);
@@ -377,7 +322,7 @@ void *mm_realloc(void *ptr, size_t size)
         return ptr;
     }
 
-    // 3. [Out-of-Place 할당] In-Place 확장이 불가능하거나 다음 블록이 에필로그인 경우
+    // case4: 복사가 필요
     void *new_ptr = mm_malloc(size);
     if (new_ptr == NULL) {
         return NULL;
@@ -389,12 +334,6 @@ void *mm_realloc(void *ptr, size_t size)
     return new_ptr;
 }
 
-/* 아래와 같은 경우에 호출 될 수 있다.
-1. 힙이 초기화 될 때
-2. mm_malloc()이 적당한 맞춤 fit을 찾지 못하였을 때
-정렬을 유지하기 위해 extend_heap()은 요청한 크기를 인접 2워드의 배수(8의 배수)로 반올림하며,
-그 후에 메모리 시스템으로 부터 추가적인 힙 공간을 요청한다.
-*/
 static void *extend_heap(size_t size)//입력 사이즈는 8의 배수로 입력됨
 {
     char *ptr;
@@ -413,6 +352,45 @@ static void *extend_heap(size_t size)//입력 사이즈는 8의 배수로 입력
     return coalesce(ptr);
 }
 
+// static void insert_free_block(void *ptr) {
+//     size_t size = GET_SIZE(HDRP(ptr));
+//     int index = get_seg_index(size);
+    
+//     void *list_head = GET_SEG_LIST(heap_start, index);
+    
+//     if (list_head == NULL) {
+//         // 리스트가 비어있으면
+//         SET_SEG_LIST(heap_start, index, ptr);
+//         PRED(ptr) = NULL;
+//         SUCC(ptr) = NULL;
+//     } else {
+//         // 내림차순으로 삽입 (크기가 큰 것부터)
+//         void *current = list_head;
+//         void *prev = NULL;
+        
+//         // 삽입할 위치 찾기 (크기가 작아지는 순간)
+//         while (current != NULL && GET_SIZE(HDRP(current)) >= size) {
+//             prev = current;
+//             current = SUCC(current);
+//         }
+        
+//         if (prev == NULL) {
+//             // 리스트 맨 앞에 삽입
+//             SET_SEG_LIST(heap_start, index, ptr);
+//             PRED(ptr) = NULL;
+//             SUCC(ptr) = list_head;
+//             PRED(list_head) = ptr;
+//         } else {
+//             // 중간이나 끝에 삽입
+//             SUCC(prev) = ptr;
+//             PRED(ptr) = prev;
+//             SUCC(ptr) = current;
+//             if (current != NULL) {
+//                 PRED(current) = ptr;
+//             }
+//         }
+//     }
+// }
 static void insert_free_block(void *ptr) {
     size_t size = GET_SIZE(HDRP(ptr));
     int index = get_seg_index(size);
@@ -425,33 +403,14 @@ static void insert_free_block(void *ptr) {
         PRED(ptr) = NULL;
         SUCC(ptr) = NULL;
     } else {
-        // 내림차순으로 삽입 (크기가 큰 것부터)
-        void *current = list_head;
-        void *prev = NULL;
-        
-        // 삽입할 위치 찾기 (크기가 작아지는 순간)
-        while (current != NULL && GET_SIZE(HDRP(current)) >= size) {
-            prev = current;
-            current = SUCC(current);
-        }
-        
-        if (prev == NULL) {
-            // 리스트 맨 앞에 삽입
-            SET_SEG_LIST(heap_start, index, ptr);
-            PRED(ptr) = NULL;
-            SUCC(ptr) = list_head;
-            PRED(list_head) = ptr;
-        } else {
-            // 중간이나 끝에 삽입
-            SUCC(prev) = ptr;
-            PRED(ptr) = prev;
-            SUCC(ptr) = current;
-            if (current != NULL) {
-                PRED(current) = ptr;
-            }
-        }
+        // 리스트 맨 앞에 삽입 (LIFO)
+        SET_SEG_LIST(heap_start, index, ptr);
+        PRED(ptr) = NULL;
+        SUCC(ptr) = list_head;
+        PRED(list_head) = ptr;
     }
 }
+
 
 static void remove_free_block(void *ptr) {
     size_t size = GET_SIZE(HDRP(ptr));
@@ -505,6 +464,43 @@ static void place(void *ptr, size_t asize)
 }
 
 //best fit with descending order
+// static void *best_fit(size_t asize)
+// {
+//     int index = get_seg_index(asize);
+//     void *ptr;
+//     void *best_ptr = NULL;
+
+//     while(index<SEGREGATED_SIZE){
+//         ptr=GET_SEG_LIST(heap_start, index);
+//         while(ptr!=NULL){
+//             size_t block_size = GET_SIZE(HDRP(ptr));
+            
+//             // 정확히 맞으면 바로 반환
+//             if(asize == block_size){
+//                 return ptr;
+//             }
+            
+//             // 내림차순이므로 현재 블록이 요청 크기보다 크거나 같으면
+//             if(block_size >= asize){
+//                 // 첫 번째로 찾은 fit이 best fit (내림차순이므로)
+//                 // 하지만 더 나은 fit을 찾기 위해 계속 탐색
+//                 if(best_ptr == NULL || block_size < GET_SIZE(HDRP(best_ptr))){
+//                     best_ptr = ptr;
+//                 }
+//             } else {
+//                 // 내림차순이므로 현재 블록보다 작으면 이후는 모두 작음
+//                 break;
+//             }
+//             ptr=SUCC(ptr);
+//         }
+//         if(best_ptr!=NULL){
+//             return best_ptr;
+//         }
+//         index++;
+//     }
+    
+//     return best_ptr;
+// }
 static void *best_fit(size_t asize)
 {
     int index = get_seg_index(asize);
@@ -514,23 +510,13 @@ static void *best_fit(size_t asize)
     while(index<SEGREGATED_SIZE){
         ptr=GET_SEG_LIST(heap_start, index);
         while(ptr!=NULL){
-            size_t block_size = GET_SIZE(HDRP(ptr));
-            
-            // 정확히 맞으면 바로 반환
-            if(asize == block_size){
+            if(asize==GET_SIZE(HDRP(ptr))){
                 return ptr;
             }
-            
-            // 내림차순이므로 현재 블록이 요청 크기보다 크거나 같으면
-            if(block_size >= asize){
-                // 첫 번째로 찾은 fit이 best fit (내림차순이므로)
-                // 하지만 더 나은 fit을 찾기 위해 계속 탐색
-                if(best_ptr == NULL || block_size < GET_SIZE(HDRP(best_ptr))){
-                    best_ptr = ptr;
+            if(asize<GET_SIZE(HDRP(ptr))){
+                if(best_ptr==NULL || GET_SIZE(HDRP(best_ptr))-asize>GET_SIZE(HDRP(ptr))-asize){
+                    best_ptr=ptr;
                 }
-            } else {
-                // 내림차순이므로 현재 블록보다 작으면 이후는 모두 작음
-                break;
             }
             ptr=SUCC(ptr);
         }
@@ -543,7 +529,6 @@ static void *best_fit(size_t asize)
     return best_ptr;
 }
 
-
 // 할당된 블록을 합칠 수 있는 경우 4가지에 따라 메모리 연결
 static void *coalesce(void *ptr)
 {
@@ -554,8 +539,7 @@ static void *coalesce(void *ptr)
     
     // 이전 블록이랑 다음 블록이 모두 할당되어 있다면, 그대로 반환
     if (prev_alloc && next_alloc) {
-        // insert_free_block(ptr);
-        // return ptr;
+        // 아무 작업도 하지 않음
     }
     // 이전 블록이 이미 할당 되어 있고, 다음 블록이 free 라면
     else if (prev_alloc){// && !next_alloc
@@ -563,7 +547,6 @@ static void *coalesce(void *ptr)
         size += GET_SIZE(HDRP(NEXT_BLKP(ptr)));//현재+다음 사이즈
         PUT(HDRP(ptr), PACK(size, 0));//현재 헤더
         PUT(FTRP(ptr), PACK(size, 0));//다음 풋터
-        // insert_free_block(ptr);
     }
     // 다음 블록이 이미 할당 되어 있고, 이전 블록이 free 라면
     else if (next_alloc) {//!prev_alloc && 
@@ -572,7 +555,6 @@ static void *coalesce(void *ptr)
         PUT(HDRP(PREV_BLKP(ptr)), PACK(size, 0));//이전 헤더
         PUT(FTRP(ptr), PACK(size, 0));//현재 풋터
         ptr = PREV_BLKP(ptr);//포인터 이전 페이로드 주소로
-        // insert_free_block(ptr);
     }
     // 이전과 다음 블록이 모두 free일 경우
     else {//!prev_alloc && !next_alloc
@@ -582,7 +564,6 @@ static void *coalesce(void *ptr)
         PUT(HDRP(PREV_BLKP(ptr)), PACK(size, 0));//이전 헤더
         ptr = PREV_BLKP(ptr);//포인터 이전 페이로드 주소로
         PUT(FTRP(ptr), PACK(size, 0));//다음 풋터
-        // insert_free_block(ptr);
     }
     insert_free_block(ptr);
     return ptr;
@@ -606,4 +587,3 @@ kops=ops/secs/1000
 util==평균util*60%               //유틸 100%가 만점
 thru==(ops/secs)/600*40%        //600kops가 만점
 */
-
