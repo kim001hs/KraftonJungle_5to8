@@ -322,9 +322,9 @@ int main(int argc, char **argv)
     util = 0;
     numcorrect = 0;
     for (i=0; i < num_tracefiles; i++) {
-	secs += mm_stats[i].secs;
-	ops += mm_stats[i].ops;
-	util += mm_stats[i].util;
+		secs += mm_stats[i].secs;
+		ops += mm_stats[i].ops;
+		util += mm_stats[i].util;
 	if (mm_stats[i].valid)
 	    numcorrect++;
     }

@@ -1,4 +1,4 @@
-//./mdriver -a -V         로 실행
+// first_fit
 
 //에필로그 없을 때
 // trace  valid  util     ops      secs   Kops
@@ -159,15 +159,7 @@ void mm_free(void *ptr)
     coalesce(ptr);
 }
 
-/*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
- 
-- 만약 ptr == NULL 이면, `mm_malloc(size)`과 동일한 동작을 수행한다.
-- 만약 size가 0 이면, `mm_free(ptr)`와 동일한 동작을 수행한다.
-- 만약 ptr != NULL 이면, 이전에 `mm_malloc()` 또는 `mm_realloc()`을 이용해 반환값이 존재하는 상태라고 볼 수 있다.
-  이때 `mm_realloc()`을 호출하면, ptr이 가르키는 메모리 블록(이전 블록)의 메모리 크기가 바이트 단위로 변경된다. 이후 새 블록의 주소를 return 한다.
-  새블록의 크기는 이전 ptr 블록의 크기와 최소한의 크기까지는 동일하고, 그 이외의 범위는 초기화되지 않는다. 예를 들어 이전 블록이 8바이트이고, 새 블록이 12바이트인 경우 첫 8바이트는 이전 블록과 동일하고 이후 4바이트는 초기화되지 않은 상태임을 의미한다.
- */
+
 void *mm_realloc(void *ptr, size_t size)
 {
     if (ptr == NULL) {
